@@ -1,0 +1,85 @@
+---
+title: "Practical Machine Learning: Course Project"
+author: "Edwin Rijgersberg"
+date: "21 december 2014"
+output: html_document
+---
+
+### Summary
+A random forest model was trained from the Human Activity Recognition Weight Lifting Exercises Dataset. The model predicts the weight lifting class (out of 5 possible classes) of the validation dataset with 99.33 % accuracy. Furthermore, it classifies 20 out of 20 testing samples correctly.
+
+### Selecting data to use
+The dataset contains a large number of observations for a large number of variables.
+However, not all of these variables are relevant for prediction, and some contain little or no values.
+Therefore, we first select only the relevant columns from the dataset.
+Specifically, we take the dataset that we will eventually use for testing, and we select only the columns that contain meaningful values. Only those columns are used for all datasets: training, validation and testing.
+```{r, cache=TRUE}
+library(caret)
+data = read.csv("./pml-training.csv", stringsAsFactors=FALSE)
+scoring_data = read.csv("./pml-testing.csv", stringsAsFactors=FALSE)
+
+# select only columns which contain no NAs
+scoring_data = scoring_data[,colSums(is.na(scoring_data)) == 0]
+```
+Furthermore, we remove columns that are not part of the measurements, but rather describe the experimental details. 
+Of course, the training and validation datasets also need the ``classe`` column, which is the factor variable we are trying to predict.
+```{r, cache=TRUE}
+useable_columns = subset(scoring_data, select=-c(X,user_name,raw_timestamp_part_1,raw_timestamp_part_2,
+                                   cvtd_timestamp,new_window,num_window,problem_id))
+useable_columns = c("classe", names(useable_columns))
+useable_data = subset(data, select=useable_columns)
+useable_data$classe = factor(useable_data$classe)
+```
+
+### Training
+First, we devide the data into two sets: we put 70% of the data in the training set, which we will use to train our model. The remaining 30% goes into the validation set. We will use the validation set to estimate how well the model will perform on new data. Specifically, we can compute the expected _out of sample_ error (also known as _out of bag_ error).
+```{r, cache=TRUE}
+set.seed(42)
+inTraining = createDataPartition(y=useable_data$classe, p = 0.7, list=FALSE)
+training = useable_data[inTraining,]
+validation = useable_data[-inTraining,]
+
+print(nrow(training))
+print(nrow(validation))
+```
+
+Now, we will train a _random forest_ model on the training set. Technically, the random forest model does not need testing on a validation set to obtain the out of sample error: it can be computed from the algorithm itself.
+We let it compute the error, but compare it to the error we will calculate ourselves on the validation data to see if this is really true.
+```{r, cache=TRUE}
+rfMod = train(classe ~ ., data=training, method="rf", trControl= trainControl(method="oob"),number=3)
+print(rfMod)
+print(rfMod$finalModel)
+```
+The algorithm is expecting the out of sample error to be 0.67% (so the out of sample accuracy is 100 % - 0.67 % = 99.33 % ).
+To see if this is true or not, lets use this model to predict on the training and validation sets:
+```{r, cache=TRUE}
+pred_train = predict(rfMod, training)
+pred_val = predict(rfMod, validation)
+```
+We print the confusion matrix and accuracy for both:
+
+```{r, cache=TRUE}
+print(confusionMatrix(pred_train, training$classe))
+print(confusionMatrix(pred_val, validation$classe))
+```
+
+As expected, the accuracy on the training set is very high (100%). The accuracy on the validation set is 99.3 %, just as predicted.
+
+
+### Predicting on the test set
+In order to submit the results to Coursera, we need a single file with a single class character for each and every observation in the testset (20 observations).
+To do this, we use the function from the instruction page.
+```{r,}
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("answers/problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+pred_scoring = predict(rfMod, scoring_data)
+pml_write_files(pred_scoring)
+```
+The files were submitted to Coursera and all 20 were found to be correct.
+
+
